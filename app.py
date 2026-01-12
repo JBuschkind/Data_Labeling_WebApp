@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask.helpers import make_response
 import os
 import json
 import random
@@ -6,6 +7,15 @@ import hashlib
 from datetime import datetime
 
 app = Flask(__name__)
+
+# CORS Headers hinzufügen (falls nötig)
+@app.after_request
+def after_request(response):
+    """Fügt CORS-Header zu allen Responses hinzu"""
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ANNOTATIONS_FOLDER'] = 'annotations'
 app.config['SAMPLE_IMAGES_FOLDER'] = 'sample_images'

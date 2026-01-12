@@ -8,6 +8,7 @@ services:
       - "5000:5000"
     volumes:
       # Code-Volumes für sofortige Änderungen (überschreibt die kopierten Dateien)
+      - ./app.py:/app/app.py
       - ./static:/app/static
       - ./index.html:/app/index.html
       # Daten-Volumes
@@ -17,6 +18,7 @@ services:
     restart: unless-stopped
     environment:
       - FLASK_ENV=production
+      - FLASK_DEBUG=1
     networks:
       - proxy
 
