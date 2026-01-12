@@ -82,6 +82,44 @@ os.makedirs(app.config['SAMPLE_IMAGES_FOLDER'], exist_ok=True)
 load_hash_cache()
 load_hash_to_path_cache()
 
+def index_all_images():
+    """Indiziert alle Bilder beim Start für schnelleren Zugriff"""
+    print("Indiziere Bilder...")
+    indexed = 0
+    search_folders = [
+        app.config['SAMPLE_IMAGES_FOLDER'],
+        app.config['UPLOAD_FOLDER']
+    ]
+    
+    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+    
+    for folder in search_folders:
+        if not os.path.exists(folder):
+            continue
+        
+        try:
+            for filename in os.listdir(folder):
+                file_ext = os.path.splitext(filename)[1].lower()
+                if file_ext in image_extensions:
+                    image_path = os.path.join(folder, filename)
+                    if os.path.isfile(image_path):
+                        image_hash = calculate_file_hash(image_path)
+                        if image_hash and image_hash not in _hash_to_path_cache:
+                            _hash_to_path_cache[image_hash] = image_path
+                            indexed += 1
+        except Exception as e:
+            print(f"Fehler beim Indizieren von {folder}: {e}")
+    
+    if indexed > 0:
+        save_hash_to_path_cache()
+        print(f"{indexed} Bilder indiziert")
+    else:
+        print("Keine neuen Bilder zum Indizieren gefunden")
+
+# Indiziere alle Bilder beim Start (im Hintergrund, blockiert nicht)
+import threading
+threading.Thread(target=index_all_images, daemon=True).start()
+
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
@@ -276,39 +314,45 @@ def get_image_by_hash(image_hash):
         # Prüfe zuerst im Cache
         if image_hash in _hash_to_path_cache:
             image_path = _hash_to_path_cache[image_hash]
-            if os.path.exists(image_path):
-                return send_file(image_path)
+            if os.path.exists(image_path) and os.path.isfile(image_path):
+                # Verifiziere, dass der Hash noch stimmt (Datei könnte sich geändert haben)
+                current_hash = calculate_file_hash(image_path)
+                if current_hash == image_hash:
+                    return send_file(image_path)
+                else:
+                    # Hash stimmt nicht mehr, entferne aus Cache
+                    del _hash_to_path_cache[image_hash]
+                    save_hash_to_path_cache()
         
-        # Falls nicht im Cache, suche in allen Ordnern
-        search_folders = [
-            app.config['SAMPLE_IMAGES_FOLDER'],
-            app.config['UPLOAD_FOLDER']
-        ]
+        # Verwende die gemeinsame Suchfunktion
+        image_path = find_image_by_hash(image_hash)
+        if image_path:
+            return send_file(image_path)
         
-        for folder in search_folders:
-            if not os.path.exists(folder):
-                continue
-            
-            image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-            try:
-                for filename in os.listdir(folder):
-                    file_ext = os.path.splitext(filename)[1].lower()
-                    if file_ext in image_extensions:
-                        image_path = os.path.join(folder, filename)
-                        if os.path.isfile(image_path):
-                            file_hash = calculate_file_hash(image_path)
-                            if file_hash == image_hash:
-                                # In Cache speichern
-                                _hash_to_path_cache[image_hash] = image_path
-                                save_hash_to_path_cache()
-                                return send_file(image_path)
-            except Exception:
-                continue
+        # Wenn immer noch nicht gefunden, prüfe ob Annotation existiert (für Debugging)
+        annotation_file = os.path.join(
+            app.config['ANNOTATIONS_FOLDER'],
+            f"annotation_{image_hash}.json"
+        )
+        if os.path.exists(annotation_file):
+            return jsonify({
+                'error': 'Bild nicht gefunden',
+                'message': f'Annotation existiert für Hash {image_hash}, aber Bilddatei wurde nicht gefunden. Möglicherweise wurde das Bild gelöscht oder verschoben.',
+                'hash': image_hash
+            }), 404
         
-        return jsonify({'error': 'Bild nicht gefunden'}), 404
+        return jsonify({
+            'error': 'Bild nicht gefunden',
+            'message': f'Kein Bild mit Hash {image_hash} gefunden',
+            'hash': image_hash
+        }), 404
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/api/upload', methods=['POST'])
 def upload_image():
@@ -342,6 +386,42 @@ def upload_image():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def find_image_by_hash(image_hash):
+    """Sucht ein Bild anhand seines Hashs und speichert es im Cache"""
+    # Prüfe zuerst im Cache
+    if image_hash in _hash_to_path_cache:
+        image_path = _hash_to_path_cache[image_hash]
+        if os.path.exists(image_path) and os.path.isfile(image_path):
+            return image_path
+    
+    # Suche in allen Ordnern
+    search_folders = [
+        app.config['SAMPLE_IMAGES_FOLDER'],
+        app.config['UPLOAD_FOLDER']
+    ]
+    
+    for folder in search_folders:
+        if not os.path.exists(folder):
+            continue
+        
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+        try:
+            for filename in os.listdir(folder):
+                file_ext = os.path.splitext(filename)[1].lower()
+                if file_ext in image_extensions:
+                    image_path = os.path.join(folder, filename)
+                    if os.path.isfile(image_path):
+                        file_hash = calculate_file_hash(image_path)
+                        if file_hash == image_hash:
+                            # In Cache speichern
+                            _hash_to_path_cache[image_hash] = image_path
+                            save_hash_to_path_cache()
+                            return image_path
+        except Exception:
+            continue
+    
+    return None
+
 @app.route('/api/annotation/<image_hash>', methods=['GET'])
 def get_annotation_by_hash(image_hash):
     try:
@@ -353,6 +433,9 @@ def get_annotation_by_hash(image_hash):
         if os.path.exists(annotation_file):
             with open(annotation_file, 'r', encoding='utf-8') as f:
                 annotation = json.load(f)
+            
+            # Versuche Bild zu finden und im Cache zu speichern (für späteren Zugriff)
+            find_image_by_hash(image_hash)
             
             # Erhöhe Überprüfungszähler beim Laden
             review_count = annotation.get('reviewCount', 0)
