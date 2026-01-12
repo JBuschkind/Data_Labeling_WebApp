@@ -305,10 +305,14 @@ def get_random_image():
             _hash_to_path_cache[image_hash] = selected_image_path
             save_hash_to_path_cache()
         
-        # Bild als Blob senden, aber Hash in Header mitgeben
+        # Dateiname extrahieren
+        filename = os.path.basename(selected_image_path)
+        
+        # Bild als Blob senden, aber Hash und Dateiname in Header mitgeben
         response = send_file(selected_image_path)
         if image_hash:
             response.headers['X-Image-Hash'] = image_hash
+        response.headers['X-Image-Filename'] = filename
         return response
     except Exception as e:
         import traceback
@@ -485,6 +489,7 @@ def upload_image():
         return jsonify({
             'success': True,
             'hash': image_hash,
+            'filename': filename,
             'message': 'Bild erfolgreich hochgeladen'
         }), 200
     
