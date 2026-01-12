@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Bildklassifizierungs-Tool</title>
+    <link rel="stylesheet" href="static/style.css?v=2">
+</head>
+<body>
+    <div class="container">
+        <div class="main-content">
+            <div class="toolbar">
+                <h1>Bildklassifizierungs-Tool</h1>
+                <div class="file-upload">
+                    <input type="file" id="imageInput" accept="image/*">
+                    <label for="imageInput" class="upload-btn">Bild auswählen</label>
+                </div>
+                <div class="controls">
+                    <button id="subjectModeBtn" class="btn btn-subject">Subjekt markieren</button>
+                    <button id="clearBtn" class="btn">Zeichnung löschen</button>
+                    <button id="undoBtn" class="btn">Letzten Punkt entfernen</button>
+                </div>
+            </div>
+            
+            <div class="canvas-container">
+                <canvas id="annotationCanvas"></canvas>
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <div class="labels-section">
+                <h2>Labels</h2>
+                <div id="labelsChecklist" class="checklist">
+                    <!-- Labels werden hier dynamisch eingefügt -->
+                </div>
+                <div class="add-label">
+                    <input type="text" id="newLabelInput" placeholder="Neues Label hinzufügen">
+                    <button id="addLabelBtn" class="btn-small">Hinzufügen</button>
+                </div>
+            </div>
+            
+            <div class="shape-info">
+                <h2>Form-Informationen</h2>
+                <div class="info-item">
+                    <label>Anzahl Punkte:</label>
+                    <span id="pointCount">0</span>
+                </div>
+                <div class="info-item">
+                    <label>Form-Typ:</label>
+                    <select id="shapeType">
+                        <option value="thirds">Rule of Thirds (0 Punkte)</option>
+                        <option value="point">Punkt (1 Punkt)</option>
+                        <option value="horizon">Horizont (2 Punkte)</option>
+                        <option value="triangle">Dreieck (3 Punkte)</option>
+                        <option value="rectangle">Rechteck (4 Punkte)</option>
+                        <option value="pentagon">Fünfeck (5 Punkte)</option>
+                        <option value="hexagon">Sechseck (6 Punkte)</option>
+                        <option value="polygon">Polygon (7+ Punkte)</option>
+                        <option value="custom">Benutzerdefiniert</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="actions">
+                <button id="saveBtn" class="btn-primary">Annotation speichern</button>
+                <button id="randomImageBtn" class="btn-primary">Zufälliges Bild</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="static/script.js?v=5"></script>
+</body>
+</html>
+

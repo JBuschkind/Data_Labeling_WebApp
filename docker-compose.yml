@@ -1,0 +1,26 @@
+version: '3.3'
+
+services:
+  image-annotation-tool:
+    build: .
+    container_name: image-annotation-tool
+    ports:
+      - "5000:5000"
+    volumes:
+      # Code-Volumes für sofortige Änderungen (überschreibt die kopierten Dateien)
+      - ./static:/app/static
+      - ./index.html:/app/index.html
+      # Daten-Volumes
+      - ./uploads:/app/uploads
+      - ./annotations:/app/annotations
+      - ./sample_images:/app/sample_images
+    restart: unless-stopped
+    environment:
+      - FLASK_ENV=production
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+
