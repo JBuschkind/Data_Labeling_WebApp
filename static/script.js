@@ -215,12 +215,37 @@ async function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
     
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+    try {
+        // Lade Bild zuerst auf Server hoch
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const uploadResponse = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            alert(`Fehler beim Hochladen: ${errorData.error || 'Unbekannter Fehler'}`);
+            return;
+        }
+        
+        const uploadData = await uploadResponse.json();
+        const imageHash = uploadData.hash;
+        
+        if (!imageHash) {
+            alert('Fehler: Bild-Hash konnte nicht ermittelt werden.');
+            return;
+        }
+        
+        // Lade Bild mit Hash-basierter URL
+        const imageUrl = `/api/image/${imageHash}`;
         const img = new Image();
         img.onload = async () => {
             currentImage = img;
             imageLoaded = true;
+            currentImageHash = imageHash;
             
             // Zurücksetzen der Punkte und Modi
             subjectPoints = [];
@@ -242,9 +267,6 @@ async function handleImageUpload(event) {
             canvas.width = width;
             canvas.height = height;
             
-            // Bild-Hash berechnen
-            currentImageHash = await getImageHash(img);
-            
             // Versuche vorhandene Annotationen zu laden
             await loadExistingAnnotation();
             
@@ -252,9 +274,15 @@ async function handleImageUpload(event) {
             updatePointCount();
             updateShapeType();
         };
-        img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
+        img.onerror = (e) => {
+            console.error('Fehler beim Laden des hochgeladenen Bildes:', e);
+            alert('Fehler beim Anzeigen des hochgeladenen Bildes.');
+        };
+        img.src = imageUrl;
+    } catch (error) {
+        console.error('Fehler beim Hochladen:', error);
+        alert(`Fehler beim Hochladen des Bildes: ${error.message}`);
+    }
 }
 
 function handleCanvasClick(event) {
@@ -479,6 +507,10 @@ async function loadRandomImage() {
             return;
         }
         
+        // Hash aus Header lesen
+        const imageHash = response.headers.get('X-Image-Hash');
+        console.log('Image Hash erhalten:', imageHash);
+        
         console.log('Blob wird geladen...');
         const blob = await response.blob();
         console.log('Blob geladen, Größe:', blob.size);
@@ -490,14 +522,23 @@ async function loadRandomImage() {
             return;
         }
         
-        const imageUrl = URL.createObjectURL(blob);
-        console.log('Image URL erstellt:', imageUrl.substring(0, 50) + '...');
+        // Verwende Hash-basierte URL statt Blob-URL
+        const imageUrl = imageHash ? `/api/image/${imageHash}` : URL.createObjectURL(blob);
+        console.log('Image URL erstellt:', imageUrl);
         
         const img = new Image();
         img.onload = async () => {
             console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
             currentImage = img;
             imageLoaded = true;
+            
+            // Hash setzen (aus Header oder berechnen)
+            if (imageHash) {
+                currentImageHash = imageHash;
+            } else {
+                // Fallback: Hash berechnen
+                currentImageHash = await getImageHash(img);
+            }
             
             // Zurücksetzen der Punkte und Modi
             subjectPoints = [];
@@ -519,9 +560,6 @@ async function loadRandomImage() {
             canvas.width = width;
             canvas.height = height;
             
-            // Bild-Hash berechnen
-            currentImageHash = await getImageHash(img);
-            
             // Versuche vorhandene Annotationen zu laden
             await loadExistingAnnotation();
             
@@ -529,13 +567,17 @@ async function loadRandomImage() {
             updatePointCount();
             updateShapeType();
             
-            // URL freigeben nach dem Laden
-            URL.revokeObjectURL(imageUrl);
+            // Blob-URL nur freigeben wenn verwendet
+            if (!imageHash && imageUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(imageUrl);
+            }
         };
         img.onerror = (e) => {
             console.error('Fehler beim Laden des Bildes:', e);
             alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
-            URL.revokeObjectURL(imageUrl);
+            if (!imageHash && imageUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(imageUrl);
+            }
         };
         img.src = imageUrl;
     } catch (error) {
@@ -707,9 +749,12 @@ async function saveAnnotation() {
         y: p.y * scaleY
     }));
     
+    // Verwende Hash-basierte URL statt Blob-URL
+    const imageUrl = currentImageHash ? `/api/image/${currentImageHash}` : currentImage.src;
+    
     const annotation = {
         imageHash: currentImageHash,
-        image: currentImage.src,
+        image: imageUrl, // Hash-basierte URL statt Blob-URL
         subjectPoints: originalSubjectPoints, // Subjekt-Punkte in Original-Größe
         compositionPoints: originalCompositionPoints, // Kompositions-Punkte in Original-Größe
         originalWidth: originalWidth,

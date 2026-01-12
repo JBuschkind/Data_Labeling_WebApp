@@ -15,6 +15,10 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 _image_hash_cache = {}
 _hash_cache_file = 'image_hash_cache.json'
 
+# Mapping von Hash zu Bildpfad (für schnellen Zugriff)
+_hash_to_path_cache = {}
+_hash_to_path_file = 'hash_to_path_cache.json'
+
 def load_hash_cache():
     """Lädt den Hash-Cache aus einer Datei"""
     global _image_hash_cache
@@ -42,6 +46,33 @@ def save_hash_cache():
     except Exception:
         pass
 
+def load_hash_to_path_cache():
+    """Lädt das Hash-zu-Pfad-Mapping aus einer Datei"""
+    global _hash_to_path_cache
+    cache_file = os.path.join(app.config['ANNOTATIONS_FOLDER'], '..', _hash_to_path_file)
+    cache_file = os.path.abspath(cache_file)
+    
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                _hash_to_path_cache = json.load(f)
+        except Exception:
+            _hash_to_path_cache = {}
+    else:
+        _hash_to_path_cache = {}
+
+def save_hash_to_path_cache():
+    """Speichert das Hash-zu-Pfad-Mapping in eine Datei"""
+    global _hash_to_path_cache
+    cache_file = os.path.join(app.config['ANNOTATIONS_FOLDER'], '..', _hash_to_path_file)
+    cache_file = os.path.abspath(cache_file)
+    
+    try:
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(_hash_to_path_cache, f, indent=2)
+    except Exception:
+        pass
+
 # Ordner erstellen falls nicht vorhanden
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['ANNOTATIONS_FOLDER'], exist_ok=True)
@@ -49,6 +80,7 @@ os.makedirs(app.config['SAMPLE_IMAGES_FOLDER'], exist_ok=True)
 
 # Hash-Cache laden beim Start
 load_hash_cache()
+load_hash_to_path_cache()
 
 @app.route('/')
 def index():
@@ -219,13 +251,96 @@ def get_random_image():
         if not os.path.isfile(selected_image_path):
             return jsonify({'error': f'Bilddatei nicht gefunden: {selected_image_path}'}), 404
         
-        return send_file(selected_image_path)
+        # Hash berechnen und in Cache speichern
+        image_hash = calculate_file_hash(selected_image_path)
+        if image_hash:
+            _hash_to_path_cache[image_hash] = selected_image_path
+            save_hash_to_path_cache()
+        
+        # Bild als Blob senden, aber Hash in Header mitgeben
+        response = send_file(selected_image_path)
+        if image_hash:
+            response.headers['X-Image-Hash'] = image_hash
+        return response
     except Exception as e:
         import traceback
         return jsonify({
             'error': str(e),
             'traceback': traceback.format_exc()
         }), 500
+
+@app.route('/api/image/<image_hash>', methods=['GET'])
+def get_image_by_hash(image_hash):
+    """Gibt ein Bild basierend auf seinem Hash zurück"""
+    try:
+        # Prüfe zuerst im Cache
+        if image_hash in _hash_to_path_cache:
+            image_path = _hash_to_path_cache[image_hash]
+            if os.path.exists(image_path):
+                return send_file(image_path)
+        
+        # Falls nicht im Cache, suche in allen Ordnern
+        search_folders = [
+            app.config['SAMPLE_IMAGES_FOLDER'],
+            app.config['UPLOAD_FOLDER']
+        ]
+        
+        for folder in search_folders:
+            if not os.path.exists(folder):
+                continue
+            
+            image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+            try:
+                for filename in os.listdir(folder):
+                    file_ext = os.path.splitext(filename)[1].lower()
+                    if file_ext in image_extensions:
+                        image_path = os.path.join(folder, filename)
+                        if os.path.isfile(image_path):
+                            file_hash = calculate_file_hash(image_path)
+                            if file_hash == image_hash:
+                                # In Cache speichern
+                                _hash_to_path_cache[image_hash] = image_path
+                                save_hash_to_path_cache()
+                                return send_file(image_path)
+            except Exception:
+                continue
+        
+        return jsonify({'error': 'Bild nicht gefunden'}), 404
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/upload', methods=['POST'])
+def upload_image():
+    """Lädt ein Bild hoch und speichert es mit Hash-Referenz"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Keine Datei hochgeladen'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'Keine Datei ausgewählt'}), 400
+        
+        # Speichere Datei temporär
+        filename = file.filename
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Berechne Hash
+        image_hash = calculate_file_hash(filepath)
+        if image_hash:
+            # In Cache speichern
+            _hash_to_path_cache[image_hash] = filepath
+            save_hash_to_path_cache()
+        
+        return jsonify({
+            'success': True,
+            'hash': image_hash,
+            'message': 'Bild erfolgreich hochgeladen'
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/annotation/<image_hash>', methods=['GET'])
 def get_annotation_by_hash(image_hash):
