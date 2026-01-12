@@ -244,6 +244,8 @@ async function handleImageUpload(event) {
         const img = new Image();
         img.onload = async () => {
             currentImage = img;
+            // Stelle sicher, dass src auf Hash-basierte URL gesetzt ist
+            currentImage.src = imageUrl;
             imageLoaded = true;
             currentImageHash = imageHash;
             
@@ -511,75 +513,115 @@ async function loadRandomImage() {
         const imageHash = response.headers.get('X-Image-Hash');
         console.log('Image Hash erhalten:', imageHash);
         
-        console.log('Blob wird geladen...');
-        const blob = await response.blob();
-        console.log('Blob geladen, Größe:', blob.size);
-        
-        // Prüfe ob Blob leer ist
-        if (blob.size === 0) {
-            console.error('Blob ist leer');
-            alert('Das geladene Bild ist leer. Bitte prüfen Sie die Bilddateien.');
-            return;
-        }
-        
-        // Verwende Hash-basierte URL statt Blob-URL
-        const imageUrl = imageHash ? `/api/image/${imageHash}` : URL.createObjectURL(blob);
-        console.log('Image URL erstellt:', imageUrl);
-        
-        const img = new Image();
-        img.onload = async () => {
-            console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
-            currentImage = img;
-            imageLoaded = true;
+        // Wenn Hash vorhanden ist, verwende direkt Hash-basierte URL (kein Blob nötig)
+        if (imageHash) {
+            console.log('Verwende Hash-basierte URL');
+            const imageUrl = `/api/image/${imageHash}`;
+            currentImageHash = imageHash;
             
-            // Hash setzen (aus Header oder berechnen)
-            if (imageHash) {
-                currentImageHash = imageHash;
-            } else {
-                // Fallback: Hash berechnen
+            const img = new Image();
+            img.onload = async () => {
+                console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
+                currentImage = img;
+                // Stelle sicher, dass src auf Hash-basierte URL gesetzt ist
+                currentImage.src = imageUrl;
+                imageLoaded = true;
+                
+                // Zurücksetzen der Punkte und Modi
+                subjectPoints = [];
+                compositionPoints = [];
+                currentMode = 'subject';
+                updateModeButton();
+                
+                // Canvas-Größe anpassen
+                const maxWidth = window.innerWidth - 400; // Platz für Sidebar
+                const maxHeight = window.innerHeight - 150; // Platz für Toolbar
+                
+                let width = img.width;
+                let height = img.height;
+                
+                const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+                width *= scale;
+                height *= scale;
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Versuche vorhandene Annotationen zu laden
+                await loadExistingAnnotation();
+                
+                drawCanvas();
+                updatePointCount();
+                updateShapeType();
+            };
+            img.onerror = (e) => {
+                console.error('Fehler beim Laden des Bildes:', e);
+                alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
+            };
+            img.src = imageUrl;
+        } else {
+            // Fallback: Wenn kein Hash im Header, lade Blob und berechne Hash
+            console.log('Kein Hash im Header, verwende Blob als Fallback');
+            console.log('Blob wird geladen...');
+            const blob = await response.blob();
+            console.log('Blob geladen, Größe:', blob.size);
+            
+            // Prüfe ob Blob leer ist
+            if (blob.size === 0) {
+                console.error('Blob ist leer');
+                alert('Das geladene Bild ist leer. Bitte prüfen Sie die Bilddateien.');
+                return;
+            }
+            
+            const imageUrl = URL.createObjectURL(blob);
+            console.log('Image URL erstellt (Blob):', imageUrl);
+            
+            const img = new Image();
+            img.onload = async () => {
+                console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
+                currentImage = img;
+                imageLoaded = true;
+                
+                // Hash berechnen (Fallback)
                 currentImageHash = await getImageHash(img);
-            }
-            
-            // Zurücksetzen der Punkte und Modi
-            subjectPoints = [];
-            compositionPoints = [];
-            currentMode = 'subject';
-            updateModeButton();
-            
-            // Canvas-Größe anpassen
-            const maxWidth = window.innerWidth - 400; // Platz für Sidebar
-            const maxHeight = window.innerHeight - 150; // Platz für Toolbar
-            
-            let width = img.width;
-            let height = img.height;
-            
-            const scale = Math.min(maxWidth / width, maxHeight / height, 1);
-            width *= scale;
-            height *= scale;
-            
-            canvas.width = width;
-            canvas.height = height;
-            
-            // Versuche vorhandene Annotationen zu laden
-            await loadExistingAnnotation();
-            
-            drawCanvas();
-            updatePointCount();
-            updateShapeType();
-            
-            // Blob-URL nur freigeben wenn verwendet
-            if (!imageHash && imageUrl.startsWith('blob:')) {
+                
+                // Zurücksetzen der Punkte und Modi
+                subjectPoints = [];
+                compositionPoints = [];
+                currentMode = 'subject';
+                updateModeButton();
+                
+                // Canvas-Größe anpassen
+                const maxWidth = window.innerWidth - 400; // Platz für Sidebar
+                const maxHeight = window.innerHeight - 150; // Platz für Toolbar
+                
+                let width = img.width;
+                let height = img.height;
+                
+                const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+                width *= scale;
+                height *= scale;
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Versuche vorhandene Annotationen zu laden
+                await loadExistingAnnotation();
+                
+                drawCanvas();
+                updatePointCount();
+                updateShapeType();
+                
+                // Blob-URL freigeben
                 URL.revokeObjectURL(imageUrl);
-            }
-        };
-        img.onerror = (e) => {
-            console.error('Fehler beim Laden des Bildes:', e);
-            alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
-            if (!imageHash && imageUrl.startsWith('blob:')) {
+            };
+            img.onerror = (e) => {
+                console.error('Fehler beim Laden des Bildes:', e);
+                alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
                 URL.revokeObjectURL(imageUrl);
-            }
-        };
-        img.src = imageUrl;
+            };
+            img.src = imageUrl;
+        }
     } catch (error) {
         console.error('Error:', error);
         // Beim automatischen Laden kein Alert zeigen
