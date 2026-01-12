@@ -21,23 +21,12 @@ This Webapp was made to Label Data for an Image Recognition University Project
 
 1. Clone the repository or copy the files to your server
 
-2. Make sure a Docker network named `proxy` exists (usually already created by Nginx Proxy Manager):
-   ```bash
-   docker network inspect proxy
-   ```
-
-3. Start the container:
+2. Start the container:
    ```bash
    docker-compose up -d
    ```
 
-4. Configure Nginx Proxy Manager:
-   - Open the Nginx Proxy Manager web interface
-   - Create a new Proxy Host
-   - Forward Hostname/IP: `image-annotation-tool` (container name)
-   - Forward Port: `5000`
-   - The `proxy` network will be used automatically
-   - Enable SSL (optional, but recommended)
+4. Make sure the Port 5000 is reachable
 
 ## Usage
 
