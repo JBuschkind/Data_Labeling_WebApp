@@ -474,8 +474,14 @@ async function loadRandomImage() {
     
     try {
         console.log('Starte Fetch zu /api/random-image');
-        const response = await fetch('/api/random-image');
+        // Cache-Busting hinzufügen, um sicherzustellen, dass wir die neueste Version bekommen
+        const response = await fetch(`/api/random-image?t=${Date.now()}`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
         console.log('Response erhalten:', response.status, response.statusText);
+        console.log('Content-Type:', response.headers.get('Content-Type'));
         
         if (!response.ok) {
             // Versuche JSON-Fehler zu lesen
@@ -498,8 +504,31 @@ async function loadRandomImage() {
             return;
         }
         
+        // Prüfe Content-Type bevor wir JSON parsen
+        const contentType = response.headers.get('Content-Type') || '';
+        console.log('Content-Type der Response:', contentType);
+        
+        if (!contentType.includes('application/json')) {
+            console.error('FEHLER: Erwartet JSON, aber Content-Type ist:', contentType);
+            console.error('Das deutet darauf hin, dass der Server noch die alte Version verwendet oder gecached wurde.');
+            console.error('Bitte starten Sie den Server neu und leeren Sie den Browser-Cache (Strg+Shift+R)');
+            alert('Fehler: Server gibt kein JSON zurück. Bitte Server neu starten und Browser-Cache leeren.');
+            isLoadingImage = false;
+            return;
+        }
+        
         // Lade JSON mit Dateiname und Image-URL (funktioniert auch hinter Reverse Proxy)
-        const data = await response.json();
+        let data;
+        try {
+            data = await response.json();
+        } catch (error) {
+            console.error('Fehler beim Parsen der JSON-Response:', error);
+            console.error('Response-Text (erste 100 Zeichen):', await response.text().then(t => t.substring(0, 100)));
+            alert('Fehler: Server-Antwort ist kein gültiges JSON. Bitte Server neu starten.');
+            isLoadingImage = false;
+            return;
+        }
+        
         const filename = data.filename;
         const imageUrl = data.imageUrl;
         

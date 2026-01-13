@@ -155,10 +155,13 @@ def get_random_image():
         
         # Gib JSON zurück mit Dateiname und Image-URL (mit Dateiname als Query-Parameter)
         # Das funktioniert auch hinter einem Reverse Proxy
-        return jsonify({
+        response = jsonify({
             'filename': selected_filename,
             'imageUrl': f'/api/image?filename={encoded_filename}'
         })
+        # Stelle sicher, dass Content-Type korrekt gesetzt ist
+        response.headers['Content-Type'] = 'application/json'
+        return response
     except Exception as e:
         import traceback
         return jsonify({
