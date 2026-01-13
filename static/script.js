@@ -520,10 +520,22 @@ async function loadRandomImage() {
         // Lade JSON mit Dateiname und Image-URL (funktioniert auch hinter Reverse Proxy)
         let data;
         try {
+            // Klone die Response, falls wir sie für Debugging brauchen
+            const responseClone = response.clone();
             data = await response.json();
         } catch (error) {
             console.error('Fehler beim Parsen der JSON-Response:', error);
-            console.error('Response-Text (erste 100 Zeichen):', await response.text().then(t => t.substring(0, 100)));
+            // Versuche Response-Text zu lesen für Debugging (nur erste 200 Zeichen)
+            try {
+                const text = await response.text();
+                console.error('Response-Text (erste 200 Zeichen):', text.substring(0, 200));
+                if (text.startsWith('JFIF') || text.startsWith('\xff\xd8')) {
+                    console.error('FEHLER: Server gibt noch ein Bild zurück statt JSON!');
+                    console.error('Der Server wurde wahrscheinlich nicht neu gestartet.');
+                }
+            } catch (e) {
+                console.error('Konnte Response-Text nicht lesen:', e);
+            }
             alert('Fehler: Server-Antwort ist kein gültiges JSON. Bitte Server neu starten.');
             isLoadingImage = false;
             return;
