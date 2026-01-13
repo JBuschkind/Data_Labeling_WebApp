@@ -230,12 +230,15 @@ async function handleImageUpload(event) {
             canvas.width = width;
             canvas.height = height;
             
-            // Versuche vorhandene Annotationen zu laden
-            await loadExistingAnnotation();
-            
+            // Zeige Bild sofort an
             drawCanvas();
             updatePointCount();
             updateShapeType();
+            
+            // Versuche vorhandene Annotationen zu laden (nicht blockierend)
+            loadExistingAnnotation().catch(err => {
+                console.warn('Fehler beim Laden der Annotation (nicht kritisch):', err);
+            });
         };
         img.src = e.target.result;
     };
@@ -464,7 +467,6 @@ async function loadRandomImage() {
             console.error('Fehler beim Laden:', errorMessage);
             // Beim automatischen Laden (beim Start) kein Alert zeigen, nur in Konsole loggen
             // Alert nur zeigen wenn Button manuell geklickt wurde
-            // Prüfe ob es ein automatischer Aufruf ist (kein Event-Objekt vorhanden)
             const isAutoLoad = typeof event === 'undefined' || !event;
             if (!isAutoLoad) {
                 alert(errorMessage);
@@ -473,23 +475,22 @@ async function loadRandomImage() {
             return;
         }
         
-        // Lade JSON mit Dateinamen und Image-URL
-        const data = await response.json();
-        const filename = data.filename;
-        const imageUrl = data.imageUrl;
-        
+        // Hole Dateinamen aus Header
+        const filename = response.headers.get('X-Image-Filename');
         console.log('Dateiname erhalten:', filename);
-        console.log('Image URL:', imageUrl);
         
-        if (!filename || !imageUrl) {
-            console.error('Ungültige Antwort: Dateiname oder Image-URL fehlt');
-            alert('Fehler: Ungültige Antwort vom Server.');
+        if (!filename) {
+            console.error('Ungültige Antwort: Dateiname fehlt im Header');
             isLoadingImage = false;
             return;
         }
         
         // Speichere Dateinamen
         currentImageFilename = filename;
+        
+        // Konvertiere Response zu Blob und dann zu Object URL
+        const blob = await response.blob();
+        const imageUrl = URL.createObjectURL(blob);
         
         const img = new Image();
         img.onload = async () => {
@@ -518,12 +519,18 @@ async function loadRandomImage() {
                 canvas.width = width;
                 canvas.height = height;
                 
-                // Versuche vorhandene Annotationen zu laden
-                await loadExistingAnnotation();
-                
+                // Zeige Bild sofort an
                 drawCanvas();
                 updatePointCount();
                 updateShapeType();
+                
+                // Versuche vorhandene Annotationen zu laden (nicht blockierend)
+                loadExistingAnnotation().catch(err => {
+                    console.warn('Fehler beim Laden der Annotation (nicht kritisch):', err);
+                });
+                
+                // URL freigeben nach dem Laden
+                URL.revokeObjectURL(imageUrl);
             } catch (error) {
                 console.error('Fehler beim Verarbeiten des geladenen Bildes:', error);
             } finally {
@@ -533,6 +540,7 @@ async function loadRandomImage() {
         img.onerror = (e) => {
             console.error('Fehler beim Laden des Bildes:', e);
             alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
+            URL.revokeObjectURL(imageUrl);
             isLoadingImage = false;
         };
         img.src = imageUrl;
@@ -557,7 +565,7 @@ async function loadExistingAnnotation() {
         
         // Erstelle AbortController für Timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 Sekunden Timeout
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 Sekunden Timeout
         
         const response = await fetch(`/api/annotation/${encodedFilename}`, {
             signal: controller.signal

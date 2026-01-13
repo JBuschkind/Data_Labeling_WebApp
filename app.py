@@ -149,15 +149,10 @@ def get_random_image():
         if not os.path.isfile(selected_image_path):
             return jsonify({'error': f'Bilddatei nicht gefunden: {selected_image_path}'}), 404
         
-        # URL-encode den Dateinamen für sichere Übertragung
-        from urllib.parse import quote
-        encoded_filename = quote(selected_filename, safe='')
-        
-        # Gib JSON mit Dateinamen zurück
-        return jsonify({
-            'filename': selected_filename,
-            'imageUrl': f'/api/image/{encoded_filename}'
-        })
+        # Gib das Bild direkt zurück mit Dateiname im Header
+        response = send_file(selected_image_path)
+        response.headers['X-Image-Filename'] = selected_filename
+        return response
     except Exception as e:
         import traceback
         return jsonify({
