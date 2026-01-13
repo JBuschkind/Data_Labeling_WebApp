@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, send_from_directory, send_file
 import os
 import json
 import random
-import hashlib
 from datetime import datetime
 
 app = Flask(__name__)
@@ -11,44 +10,10 @@ app.config['ANNOTATIONS_FOLDER'] = 'annotations'
 app.config['SAMPLE_IMAGES_FOLDER'] = 'sample_images'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-# Cache für Bild-Hashes (Dateiname -> Hash)
-_image_hash_cache = {}
-_hash_cache_file = 'image_hash_cache.json'
-
-def load_hash_cache():
-    """Lädt den Hash-Cache aus einer Datei"""
-    global _image_hash_cache
-    cache_file = os.path.join(app.config['ANNOTATIONS_FOLDER'], '..', _hash_cache_file)
-    cache_file = os.path.abspath(cache_file)
-    
-    if os.path.exists(cache_file):
-        try:
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                _image_hash_cache = json.load(f)
-        except Exception:
-            _image_hash_cache = {}
-    else:
-        _image_hash_cache = {}
-
-def save_hash_cache():
-    """Speichert den Hash-Cache in eine Datei"""
-    global _image_hash_cache
-    cache_file = os.path.join(app.config['ANNOTATIONS_FOLDER'], '..', _hash_cache_file)
-    cache_file = os.path.abspath(cache_file)
-    
-    try:
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(_image_hash_cache, f, indent=2)
-    except Exception:
-        pass
-
 # Ordner erstellen falls nicht vorhanden
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['ANNOTATIONS_FOLDER'], exist_ok=True)
 os.makedirs(app.config['SAMPLE_IMAGES_FOLDER'], exist_ok=True)
-
-# Hash-Cache laden beim Start
-load_hash_cache()
 
 @app.route('/')
 def index():
@@ -68,14 +33,16 @@ def save_annotation():
     try:
         data = request.json
         
-        # Wenn ein imageHash vorhanden ist, speichere nach Hash (überschreibt alte Annotation)
-        image_hash = data.get('imageHash')
+        # Verwende Dateinamen statt Hash
+        filename = data.get('filename')
         
-        if image_hash:
-            # Speichere nach Hash (überschreibt alte Annotationen für dasselbe Bild)
+        if filename:
+            # Sicherheitsprüfung: Verhindere Path Traversal
+            filename = os.path.basename(filename)
+            # Speichere nach Dateinamen (überschreibt alte Annotationen für dasselbe Bild)
             annotation_file = os.path.join(
                 app.config['ANNOTATIONS_FOLDER'],
-                f"annotation_{image_hash}.json"
+                f"annotation_{filename}.json"
             )
             
             # Wenn bereits eine Annotation existiert, behalte reviewCount
@@ -118,46 +85,10 @@ def get_annotations():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-def calculate_file_hash(filepath, use_cache=True):
-    """Berechnet SHA-256 Hash einer Datei (mit Caching)"""
-    # Prüfe Cache zuerst
-    filename = os.path.basename(filepath)
-    file_stat = os.stat(filepath)
-    cache_key = f"{filename}_{file_stat.st_mtime}_{file_stat.st_size}"
-    
-    if use_cache and cache_key in _image_hash_cache:
-        return _image_hash_cache[cache_key]
-    
-    # Hash berechnen
-    hash_sha256 = hashlib.sha256()
-    try:
-        with open(filepath, 'rb') as f:
-            # Nur ersten Teil lesen für schnellere Berechnung (erste 64KB)
-            # Das ist ausreichend für eindeutige Identifikation
-            chunk = f.read(65536)
-            hash_sha256.update(chunk)
-            # Rest der Datei auch lesen für vollständigen Hash
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_sha256.update(chunk)
-        
-        hash_value = hash_sha256.hexdigest()
-        
-        # In Cache speichern
-        if use_cache:
-            _image_hash_cache[cache_key] = hash_value
-            save_hash_cache()
-        
-        return hash_value
-    except Exception:
-        return None
-
-def get_image_priority(image_path, annotations_folder):
+def get_image_priority(image_filename, annotations_folder):
     """Bestimmt die Priorität eines Bildes für die Auswahl"""
-    image_hash = calculate_file_hash(image_path)
-    if not image_hash:
-        return (2, 999999)  # Niedrigste Priorität wenn Hash nicht berechnet werden kann
-    
-    annotation_file = os.path.join(annotations_folder, f"annotation_{image_hash}.json")
+    # Verwende Dateinamen statt Hash
+    annotation_file = os.path.join(annotations_folder, f"annotation_{image_filename}.json")
     
     if not os.path.exists(annotation_file):
         # Keine Annotation vorhanden - höchste Priorität
@@ -198,7 +129,7 @@ def get_random_image():
                     image_path = os.path.join(sample_folder, filename)
                     # Prüfe ob Datei wirklich existiert
                     if os.path.isfile(image_path):
-                        image_files.append(image_path)
+                        image_files.append((filename, image_path))
         except Exception as e:
             return jsonify({'error': f'Fehler beim Lesen des Ordners: {str(e)}'}), 500
         
@@ -212,14 +143,17 @@ def get_random_image():
             }), 404
         
         # Einfach ein zufälliges Bild zurückgeben - SOFORT, ohne Hash-Berechnung
-        # Die Priorisierung kann später im Hintergrund passieren
-        selected_image_path = random.choice(image_files)
+        selected_filename, selected_image_path = random.choice(image_files)
         
         # Prüfe ob Datei wirklich existiert
         if not os.path.isfile(selected_image_path):
             return jsonify({'error': f'Bilddatei nicht gefunden: {selected_image_path}'}), 404
         
-        return send_file(selected_image_path)
+        # Gib JSON mit Dateinamen zurück
+        return jsonify({
+            'filename': selected_filename,
+            'imageUrl': f'/api/image/{selected_filename}'
+        })
     except Exception as e:
         import traceback
         return jsonify({
@@ -227,12 +161,30 @@ def get_random_image():
             'traceback': traceback.format_exc()
         }), 500
 
-@app.route('/api/annotation/<image_hash>', methods=['GET'])
-def get_annotation_by_hash(image_hash):
+@app.route('/api/image/<filename>', methods=['GET'])
+def get_image(filename):
+    """Gibt ein Bild anhand des Dateinamens zurück"""
     try:
+        # Sicherheitsprüfung: Verhindere Path Traversal
+        filename = os.path.basename(filename)
+        image_path = os.path.join(app.config['SAMPLE_IMAGES_FOLDER'], filename)
+        
+        # Prüfe ob Datei existiert
+        if not os.path.isfile(image_path):
+            return jsonify({'error': f'Bilddatei nicht gefunden: {filename}'}), 404
+        
+        return send_file(image_path)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/annotation/<filename>', methods=['GET'])
+def get_annotation_by_filename(filename):
+    try:
+        # Sicherheitsprüfung: Verhindere Path Traversal
+        filename = os.path.basename(filename)
         annotation_file = os.path.join(
             app.config['ANNOTATIONS_FOLDER'],
-            f"annotation_{image_hash}.json"
+            f"annotation_{filename}.json"
         )
         
         if os.path.exists(annotation_file):

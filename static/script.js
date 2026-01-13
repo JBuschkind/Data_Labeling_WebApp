@@ -39,36 +39,6 @@ const SHAPE_TYPE_MAPPING = {
 
 // ============================================
 
-// Hilfsfunktion: Hash eines Bildes berechnen
-async function calculateImageHash(imageData) {
-    // Verwende die SubtleCrypto API für Hash-Berechnung
-    const encoder = new TextEncoder();
-    const data = encoder.encode(imageData);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    return hashHex;
-}
-
-// Hilfsfunktion: Hash aus Bild-URL oder File berechnen
-async function getImageHash(img) {
-    try {
-        // Erstelle einen Canvas, um die Bilddaten zu bekommen
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = img.width;
-        tempCanvas.height = img.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.drawImage(img, 0, 0);
-        
-        // Konvertiere zu Data URL und berechne Hash
-        const imageData = tempCanvas.toDataURL();
-        return await calculateImageHash(imageData);
-    } catch (error) {
-        console.error('Fehler beim Berechnen des Bild-Hashes:', error);
-        // Fallback: Verwende Timestamp als Hash
-        return `fallback_${Date.now()}`;
-    }
-}
 
 // Zustand
 let subjectPoints = []; // Punkte für Hauptsubjekt-Markierung
@@ -78,7 +48,7 @@ let currentImage = null;
 let imageLoaded = false;
 let labels = [...DEFAULT_LABELS]; // Kopie der Standard-Labels
 let selectedLabels = new Set();
-let currentImageHash = null; // Hash des aktuellen Bildes für Identifikation
+let currentImageFilename = null; // Dateiname des aktuellen Bildes für Identifikation
 let isAutoMode = true; // Verfolgt, ob automatischer Modus aktiv ist
 
 // Farben für die verschiedenen Modi
@@ -215,6 +185,9 @@ async function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
     
+    // Verwende den Dateinamen des hochgeladenen Bildes
+    currentImageFilename = file.name;
+    
     const reader = new FileReader();
     reader.onload = async (e) => {
         const img = new Image();
@@ -241,9 +214,6 @@ async function handleImageUpload(event) {
             
             canvas.width = width;
             canvas.height = height;
-            
-            // Bild-Hash berechnen
-            currentImageHash = await getImageHash(img);
             
             // Versuche vorhandene Annotationen zu laden
             await loadExistingAnnotation();
@@ -479,19 +449,22 @@ async function loadRandomImage() {
             return;
         }
         
-        console.log('Blob wird geladen...');
-        const blob = await response.blob();
-        console.log('Blob geladen, Größe:', blob.size);
+        // Lade JSON mit Dateinamen und Image-URL
+        const data = await response.json();
+        const filename = data.filename;
+        const imageUrl = data.imageUrl;
         
-        // Prüfe ob Blob leer ist
-        if (blob.size === 0) {
-            console.error('Blob ist leer');
-            alert('Das geladene Bild ist leer. Bitte prüfen Sie die Bilddateien.');
+        console.log('Dateiname erhalten:', filename);
+        console.log('Image URL:', imageUrl);
+        
+        if (!filename || !imageUrl) {
+            console.error('Ungültige Antwort: Dateiname oder Image-URL fehlt');
+            alert('Fehler: Ungültige Antwort vom Server.');
             return;
         }
         
-        const imageUrl = URL.createObjectURL(blob);
-        console.log('Image URL erstellt:', imageUrl.substring(0, 50) + '...');
+        // Speichere Dateinamen
+        currentImageFilename = filename;
         
         const img = new Image();
         img.onload = async () => {
@@ -519,23 +492,16 @@ async function loadRandomImage() {
             canvas.width = width;
             canvas.height = height;
             
-            // Bild-Hash berechnen
-            currentImageHash = await getImageHash(img);
-            
             // Versuche vorhandene Annotationen zu laden
             await loadExistingAnnotation();
             
             drawCanvas();
             updatePointCount();
             updateShapeType();
-            
-            // URL freigeben nach dem Laden
-            URL.revokeObjectURL(imageUrl);
         };
         img.onerror = (e) => {
             console.error('Fehler beim Laden des Bildes:', e);
             alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
-            URL.revokeObjectURL(imageUrl);
         };
         img.src = imageUrl;
     } catch (error) {
@@ -550,10 +516,12 @@ async function loadRandomImage() {
 
 // Vorhandene Annotation für das aktuelle Bild laden
 async function loadExistingAnnotation() {
-    if (!currentImageHash) return;
+    if (!currentImageFilename) return;
     
     try {
-        const response = await fetch(`/api/annotation/${currentImageHash}`);
+        // URL-encode den Dateinamen für sichere Übertragung
+        const encodedFilename = encodeURIComponent(currentImageFilename);
+        const response = await fetch(`/api/annotation/${encodedFilename}`);
         if (response.ok) {
             const annotation = await response.json();
             
@@ -686,8 +654,8 @@ async function saveAnnotation() {
         return;
     }
     
-    if (!currentImageHash) {
-        alert('Fehler: Bild-Hash konnte nicht berechnet werden.');
+    if (!currentImageFilename) {
+        alert('Fehler: Dateiname nicht verfügbar. Bitte laden Sie das Bild über "Zufälliges Bild laden".');
         return;
     }
     
@@ -708,7 +676,7 @@ async function saveAnnotation() {
     }));
     
     const annotation = {
-        imageHash: currentImageHash,
+        filename: currentImageFilename,
         image: currentImage.src,
         subjectPoints: originalSubjectPoints, // Subjekt-Punkte in Original-Größe
         compositionPoints: originalCompositionPoints, // Kompositions-Punkte in Original-Größe
@@ -747,7 +715,7 @@ function loadNextImage() {
     selectedLabels.clear();
     imageLoaded = false;
     currentImage = null;
-    currentImageHash = null;
+    currentImageFilename = null;
     isAutoMode = true; // Zurücksetzen auf Auto-Modus
     updateModeButton();
     
