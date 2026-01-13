@@ -50,17 +50,27 @@ let labels = [...DEFAULT_LABELS]; // Kopie der Standard-Labels
 let selectedLabels = new Set();
 let currentImageFilename = null; // Dateiname des aktuellen Bildes für Identifikation
 let isAutoMode = true; // Verfolgt, ob automatischer Modus aktiv ist
+let isLoadingImage = false; // Verhindert mehrfache gleichzeitige Bildladungen
 
 // Farben für die verschiedenen Modi
 const SUBJECT_COLOR = '#e74c3c'; // Rot für Subjekt
 const COMPOSITION_COLOR = '#3498db'; // Blau für Komposition
 
 // Initialisierung - warte bis DOM geladen ist
+let initCalled = false;
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!initCalled) {
+            initCalled = true;
+            init();
+        }
+    });
 } else {
     // DOM ist bereits geladen
-    init();
+    if (!initCalled) {
+        initCalled = true;
+        init();
+    }
 }
 
 function init() {
@@ -81,9 +91,14 @@ function init() {
     // Lade automatisch ein zufälliges Bild beim Start
     // Kleine Verzögerung, um sicherzustellen, dass alles initialisiert ist
     console.log('Starte automatisches Laden eines zufälligen Bildes...');
-    setTimeout(() => {
-        loadRandomImage();
-    }, 200);
+    // Verwende requestAnimationFrame für bessere Performance
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            loadRandomImage().catch(err => {
+                console.error('Fehler beim automatischen Laden:', err);
+            });
+        }, 200);
+    });
     console.log('=== Initialisierung abgeschlossen ===');
 }
 
@@ -422,7 +437,15 @@ function updateShapeType() {
 }
 
 async function loadRandomImage() {
+    // Verhindere mehrfache gleichzeitige Aufrufe
+    if (isLoadingImage) {
+        console.log('Bild wird bereits geladen, ignoriere weiteren Aufruf');
+        return;
+    }
+    
+    isLoadingImage = true;
     console.log('loadRandomImage() aufgerufen');
+    
     try {
         console.log('Starte Fetch zu /api/random-image');
         const response = await fetch('/api/random-image');
@@ -446,6 +469,7 @@ async function loadRandomImage() {
             if (!isAutoLoad) {
                 alert(errorMessage);
             }
+            isLoadingImage = false;
             return;
         }
         
@@ -460,6 +484,7 @@ async function loadRandomImage() {
         if (!filename || !imageUrl) {
             console.error('Ungültige Antwort: Dateiname oder Image-URL fehlt');
             alert('Fehler: Ungültige Antwort vom Server.');
+            isLoadingImage = false;
             return;
         }
         
@@ -468,40 +493,47 @@ async function loadRandomImage() {
         
         const img = new Image();
         img.onload = async () => {
-            console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
-            currentImage = img;
-            imageLoaded = true;
-            
-            // Zurücksetzen der Punkte und Modi
-            subjectPoints = [];
-            compositionPoints = [];
-            currentMode = 'subject';
-            updateModeButton();
-            
-            // Canvas-Größe anpassen
-            const maxWidth = window.innerWidth - 400; // Platz für Sidebar
-            const maxHeight = window.innerHeight - 150; // Platz für Toolbar
-            
-            let width = img.width;
-            let height = img.height;
-            
-            const scale = Math.min(maxWidth / width, maxHeight / height, 1);
-            width *= scale;
-            height *= scale;
-            
-            canvas.width = width;
-            canvas.height = height;
-            
-            // Versuche vorhandene Annotationen zu laden
-            await loadExistingAnnotation();
-            
-            drawCanvas();
-            updatePointCount();
-            updateShapeType();
+            try {
+                console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
+                currentImage = img;
+                imageLoaded = true;
+                
+                // Zurücksetzen der Punkte und Modi
+                subjectPoints = [];
+                compositionPoints = [];
+                currentMode = 'subject';
+                updateModeButton();
+                
+                // Canvas-Größe anpassen
+                const maxWidth = window.innerWidth - 400; // Platz für Sidebar
+                const maxHeight = window.innerHeight - 150; // Platz für Toolbar
+                
+                let width = img.width;
+                let height = img.height;
+                
+                const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+                width *= scale;
+                height *= scale;
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Versuche vorhandene Annotationen zu laden
+                await loadExistingAnnotation();
+                
+                drawCanvas();
+                updatePointCount();
+                updateShapeType();
+            } catch (error) {
+                console.error('Fehler beim Verarbeiten des geladenen Bildes:', error);
+            } finally {
+                isLoadingImage = false;
+            }
         };
         img.onerror = (e) => {
             console.error('Fehler beim Laden des Bildes:', e);
             alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
+            isLoadingImage = false;
         };
         img.src = imageUrl;
     } catch (error) {
@@ -511,6 +543,7 @@ async function loadRandomImage() {
         if (!isAutoLoad) {
             alert(`Fehler beim Laden des zufälligen Bildes: ${error.message}`);
         }
+        isLoadingImage = false;
     }
 }
 
@@ -521,7 +554,16 @@ async function loadExistingAnnotation() {
     try {
         // URL-encode den Dateinamen für sichere Übertragung
         const encodedFilename = encodeURIComponent(currentImageFilename);
-        const response = await fetch(`/api/annotation/${encodedFilename}`);
+        
+        // Erstelle AbortController für Timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 Sekunden Timeout
+        
+        const response = await fetch(`/api/annotation/${encodedFilename}`, {
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         if (response.ok) {
             const annotation = await response.json();
             
@@ -595,7 +637,12 @@ async function loadExistingAnnotation() {
             console.log('Vorhandene Annotation geladen');
         }
     } catch (error) {
-        console.error('Fehler beim Laden der Annotation:', error);
+        // Timeout oder andere Fehler - das ist in Ordnung, wenn keine Annotation vorhanden ist
+        if (error.name === 'AbortError') {
+            console.warn('Timeout beim Laden der Annotation (möglicherweise keine vorhanden)');
+        } else {
+            console.error('Fehler beim Laden der Annotation:', error);
+        }
         // Wenn keine Annotation gefunden wird, ist das in Ordnung
     }
 }

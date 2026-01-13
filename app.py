@@ -149,10 +149,14 @@ def get_random_image():
         if not os.path.isfile(selected_image_path):
             return jsonify({'error': f'Bilddatei nicht gefunden: {selected_image_path}'}), 404
         
+        # URL-encode den Dateinamen für sichere Übertragung
+        from urllib.parse import quote
+        encoded_filename = quote(selected_filename, safe='')
+        
         # Gib JSON mit Dateinamen zurück
         return jsonify({
             'filename': selected_filename,
-            'imageUrl': f'/api/image/{selected_filename}'
+            'imageUrl': f'/api/image/{encoded_filename}'
         })
     except Exception as e:
         import traceback
@@ -161,10 +165,14 @@ def get_random_image():
             'traceback': traceback.format_exc()
         }), 500
 
-@app.route('/api/image/<filename>', methods=['GET'])
+@app.route('/api/image/<path:filename>', methods=['GET'])
 def get_image(filename):
     """Gibt ein Bild anhand des Dateinamens zurück"""
     try:
+        # URL-decode den Dateinamen
+        from urllib.parse import unquote
+        filename = unquote(filename)
+        
         # Sicherheitsprüfung: Verhindere Path Traversal
         filename = os.path.basename(filename)
         image_path = os.path.join(app.config['SAMPLE_IMAGES_FOLDER'], filename)
