@@ -79,7 +79,6 @@ let imageLoaded = false;
 let labels = [...DEFAULT_LABELS]; // Kopie der Standard-Labels
 let selectedLabels = new Set();
 let currentImageHash = null; // Hash des aktuellen Bildes für Identifikation
-let currentImageFilename = null; // Dateiname des aktuellen Bildes
 let isAutoMode = true; // Verfolgt, ob automatischer Modus aktiv ist
 
 // Farben für die verschiedenen Modi
@@ -234,7 +233,6 @@ async function handleImageUpload(event) {
         
         const uploadData = await uploadResponse.json();
         const imageHash = uploadData.hash;
-        const imageFilename = uploadData.filename || file.name; // Dateiname aus Response oder vom File
         
         if (!imageHash) {
             alert('Fehler: Bild-Hash konnte nicht ermittelt werden.');
@@ -250,7 +248,6 @@ async function handleImageUpload(event) {
             currentImage.src = imageUrl;
             imageLoaded = true;
             currentImageHash = imageHash;
-            currentImageFilename = imageFilename; // Dateiname vom Upload
             
             // Zurücksetzen der Punkte und Modi
             subjectPoints = [];
@@ -512,18 +509,15 @@ async function loadRandomImage() {
             return;
         }
         
-        // Hash und Dateiname aus Header lesen
+        // Hash aus Header lesen
         const imageHash = response.headers.get('X-Image-Hash');
-        const imageFilename = response.headers.get('X-Image-Filename');
         console.log('Image Hash erhalten:', imageHash);
-        console.log('Image Filename erhalten:', imageFilename);
         
         // Wenn Hash vorhanden ist, verwende direkt Hash-basierte URL (kein Blob nötig)
         if (imageHash) {
             console.log('Verwende Hash-basierte URL');
             const imageUrl = `/api/image/${imageHash}`;
             currentImageHash = imageHash;
-            currentImageFilename = imageFilename;
             
             const img = new Image();
             img.onload = async () => {
@@ -566,8 +560,8 @@ async function loadRandomImage() {
             };
             img.src = imageUrl;
         } else {
-            // Fallback: Wenn kein Hash im Header, verwende Blob-URL (ohne Hash-Berechnung)
-            console.warn('Kein Hash im Header, verwende Blob-URL als Fallback');
+            // Fallback: Wenn kein Hash im Header, lade Blob und berechne Hash
+            console.log('Kein Hash im Header, verwende Blob als Fallback');
             console.log('Blob wird geladen...');
             const blob = await response.blob();
             console.log('Blob geladen, Größe:', blob.size);
@@ -582,17 +576,14 @@ async function loadRandomImage() {
             const imageUrl = URL.createObjectURL(blob);
             console.log('Image URL erstellt (Blob):', imageUrl);
             
-            // Kein Hash verfügbar - verwende Timestamp als temporären Hash
-            currentImageHash = `temp_${Date.now()}`;
-            currentImageFilename = null; // Dateiname nicht verfügbar im Fallback
-            
             const img = new Image();
             img.onload = async () => {
                 console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
                 currentImage = img;
-                // Stelle sicher, dass src auf Blob-URL gesetzt ist
-                currentImage.src = imageUrl;
                 imageLoaded = true;
+                
+                // Hash berechnen (Fallback)
+                currentImageHash = await getImageHash(img);
                 
                 // Zurücksetzen der Punkte und Modi
                 subjectPoints = [];
@@ -614,7 +605,7 @@ async function loadRandomImage() {
                 canvas.width = width;
                 canvas.height = height;
                 
-                // Versuche vorhandene Annotationen zu laden (wird bei temp Hash nicht funktionieren)
+                // Versuche vorhandene Annotationen zu laden
                 await loadExistingAnnotation();
                 
                 drawCanvas();
@@ -649,11 +640,6 @@ async function loadExistingAnnotation() {
         const response = await fetch(`/api/annotation/${currentImageHash}`);
         if (response.ok) {
             const annotation = await response.json();
-            
-            // Dateiname aus Annotation laden (falls vorhanden)
-            if (annotation.filename) {
-                currentImageFilename = annotation.filename;
-            }
             
             // Original-Bildgröße aus der Annotation (falls gespeichert)
             const originalWidth = annotation.originalWidth || currentImage.width;
@@ -811,7 +797,6 @@ async function saveAnnotation() {
     const annotation = {
         imageHash: currentImageHash,
         image: imageUrl, // Hash-basierte URL statt Blob-URL
-        filename: currentImageFilename, // Dateiname des Bildes
         subjectPoints: originalSubjectPoints, // Subjekt-Punkte in Original-Größe
         compositionPoints: originalCompositionPoints, // Kompositions-Punkte in Original-Größe
         originalWidth: originalWidth,
@@ -850,7 +835,6 @@ function loadNextImage() {
     imageLoaded = false;
     currentImage = null;
     currentImageHash = null;
-    currentImageFilename = null;
     isAutoMode = true; // Zurücksetzen auf Auto-Modus
     updateModeButton();
     
