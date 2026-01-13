@@ -498,12 +498,16 @@ async function loadRandomImage() {
             return;
         }
         
-        // Hole Dateinamen aus Header
-        const filename = response.headers.get('X-Image-Filename');
-        console.log('Dateiname erhalten:', filename);
+        // Lade JSON mit Dateiname und Image-URL (funktioniert auch hinter Reverse Proxy)
+        const data = await response.json();
+        const filename = data.filename;
+        const imageUrl = data.imageUrl;
         
-        if (!filename) {
-            console.error('Ungültige Antwort: Dateiname fehlt im Header');
+        console.log('Dateiname erhalten:', filename);
+        console.log('Image URL:', imageUrl);
+        
+        if (!filename || !imageUrl) {
+            console.error('Ungültige Antwort: Dateiname oder Image-URL fehlt');
             isLoadingImage = false;
             return;
         }
@@ -511,10 +515,12 @@ async function loadRandomImage() {
         // Speichere Dateinamen
         currentImageFilename = filename;
         
-        // Konvertiere Response zu Blob und dann zu Object URL
-        const blob = await response.blob();
-        const imageUrl = URL.createObjectURL(blob);
-        currentBlobUrl = imageUrl; // Speichere für spätere Freigabe
+        // Lade das Bild direkt über die URL (keine Blob-URL nötig)
+        // Gebe alte Blob-URL frei, falls vorhanden
+        if (currentBlobUrl) {
+            URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = null;
+        }
         
         const img = new Image();
         img.onload = async () => {
@@ -561,10 +567,6 @@ async function loadRandomImage() {
         img.onerror = (e) => {
             console.error('Fehler beim Laden des Bildes:', e);
             alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
-            if (currentBlobUrl) {
-                URL.revokeObjectURL(currentBlobUrl);
-                currentBlobUrl = null;
-            }
             isLoadingImage = false;
         };
         img.src = imageUrl;

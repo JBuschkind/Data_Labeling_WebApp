@@ -149,10 +149,16 @@ def get_random_image():
         if not os.path.isfile(selected_image_path):
             return jsonify({'error': f'Bilddatei nicht gefunden: {selected_image_path}'}), 404
         
-        # Gib das Bild direkt zurück mit Dateiname im Header
-        response = send_file(selected_image_path)
-        response.headers['X-Image-Filename'] = selected_filename
-        return response
+        # URL-encode den Dateinamen für sichere Übertragung
+        from urllib.parse import quote
+        encoded_filename = quote(selected_filename, safe='')
+        
+        # Gib JSON zurück mit Dateiname und Image-URL (mit Dateiname als Query-Parameter)
+        # Das funktioniert auch hinter einem Reverse Proxy
+        return jsonify({
+            'filename': selected_filename,
+            'imageUrl': f'/api/image?filename={encoded_filename}'
+        })
     except Exception as e:
         import traceback
         return jsonify({
@@ -160,10 +166,15 @@ def get_random_image():
             'traceback': traceback.format_exc()
         }), 500
 
-@app.route('/api/image/<path:filename>', methods=['GET'])
-def get_image(filename):
-    """Gibt ein Bild anhand des Dateinamens zurück"""
+@app.route('/api/image', methods=['GET'])
+def get_image():
+    """Gibt ein Bild anhand des Dateinamens zurück (als Query-Parameter)"""
     try:
+        # Hole Dateinamen aus Query-Parameter
+        filename = request.args.get('filename')
+        if not filename:
+            return jsonify({'error': 'Dateiname fehlt'}), 400
+        
         # URL-decode den Dateinamen
         from urllib.parse import unquote
         filename = unquote(filename)
