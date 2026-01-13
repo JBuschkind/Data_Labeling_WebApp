@@ -299,20 +299,40 @@ def get_random_image():
         if not os.path.isfile(selected_image_path):
             return jsonify({'error': f'Bilddatei nicht gefunden: {selected_image_path}'}), 404
         
-        # Hash berechnen und in Cache speichern
-        image_hash = calculate_file_hash(selected_image_path)
-        if image_hash:
-            _hash_to_path_cache[image_hash] = selected_image_path
-            save_hash_to_path_cache()
-        
         # Dateiname extrahieren
         filename = os.path.basename(selected_image_path)
         
-        # Bild als Blob senden, aber Hash und Dateiname in Header mitgeben
+        # Prüfe zuerst, ob Hash bereits im Cache ist (schnell, nur Datei-Stat)
+        file_stat = os.stat(selected_image_path)
+        cache_key = f"{filename}_{file_stat.st_mtime}_{file_stat.st_size}"
+        
+        # Versuche Hash aus Cache zu holen (ohne Datei zu lesen - sehr schnell!)
+        image_hash = None
+        if cache_key in _image_hash_cache:
+            image_hash = _image_hash_cache[cache_key]
+            # Stelle sicher, dass Hash auch im path-cache ist
+            if image_hash and image_hash not in _hash_to_path_cache:
+                _hash_to_path_cache[image_hash] = selected_image_path
+                save_hash_to_path_cache()
+        
+        # Bild SOFORT senden (ohne auf Hash-Berechnung zu warten, wenn nicht im Cache)
+        # Hash wird nur berechnet, wenn er bereits im Cache ist (sehr schnell)
+        # Wenn Hash nicht im Cache ist, wird er später beim nächsten Zugriff berechnet
         response = send_file(selected_image_path)
         if image_hash:
             response.headers['X-Image-Hash'] = image_hash
         response.headers['X-Image-Filename'] = filename
+        
+        # Hash im Hintergrund berechnen, wenn nicht im Cache (nicht blockierend)
+        if not image_hash:
+            import threading
+            def calculate_hash_async():
+                hash_value = calculate_file_hash(selected_image_path)
+                if hash_value:
+                    _hash_to_path_cache[hash_value] = selected_image_path
+                    save_hash_to_path_cache()
+            threading.Thread(target=calculate_hash_async, daemon=True).start()
+        
         return response
     except Exception as e:
         import traceback
