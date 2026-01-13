@@ -10,6 +10,7 @@ services:
       # Code-Volumes für sofortige Änderungen (überschreibt die kopierten Dateien)
       - ./static:/app/static
       - ./index.html:/app/index.html
+      - ./app.py:/app/app.py
       # Daten-Volumes
       - ./uploads:/app/uploads
       - ./annotations:/app/annotations
