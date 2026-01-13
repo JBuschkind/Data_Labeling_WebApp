@@ -51,6 +51,7 @@ let selectedLabels = new Set();
 let currentImageFilename = null; // Dateiname des aktuellen Bildes für Identifikation
 let isAutoMode = true; // Verfolgt, ob automatischer Modus aktiv ist
 let isLoadingImage = false; // Verhindert mehrfache gleichzeitige Bildladungen
+let currentBlobUrl = null; // Speichert die aktuelle Blob-URL für spätere Freigabe
 
 // Farben für die verschiedenen Modi
 const SUBJECT_COLOR = '#e74c3c'; // Rot für Subjekt
@@ -72,6 +73,22 @@ if (document.readyState === 'loading') {
         init();
     }
 }
+
+// Cleanup beim Verlassen der Seite
+window.addEventListener('beforeunload', () => {
+    if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+    }
+});
+
+// Cleanup bei Seitenwechsel (falls SPA)
+window.addEventListener('pagehide', () => {
+    if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+    }
+});
 
 function init() {
     console.log('=== Initialisierung gestartet ===');
@@ -446,6 +463,12 @@ async function loadRandomImage() {
         return;
     }
     
+    // Gebe alte Blob-URL frei, falls vorhanden
+    if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+    }
+    
     isLoadingImage = true;
     console.log('loadRandomImage() aufgerufen');
     
@@ -491,6 +514,7 @@ async function loadRandomImage() {
         // Konvertiere Response zu Blob und dann zu Object URL
         const blob = await response.blob();
         const imageUrl = URL.createObjectURL(blob);
+        currentBlobUrl = imageUrl; // Speichere für spätere Freigabe
         
         const img = new Image();
         img.onload = async () => {
@@ -528,9 +552,6 @@ async function loadRandomImage() {
                 loadExistingAnnotation().catch(err => {
                     console.warn('Fehler beim Laden der Annotation (nicht kritisch):', err);
                 });
-                
-                // URL freigeben nach dem Laden
-                URL.revokeObjectURL(imageUrl);
             } catch (error) {
                 console.error('Fehler beim Verarbeiten des geladenen Bildes:', error);
             } finally {
@@ -540,7 +561,10 @@ async function loadRandomImage() {
         img.onerror = (e) => {
             console.error('Fehler beim Laden des Bildes:', e);
             alert('Fehler beim Anzeigen des Bildes. Bitte prüfen Sie die Bilddatei.');
-            URL.revokeObjectURL(imageUrl);
+            if (currentBlobUrl) {
+                URL.revokeObjectURL(currentBlobUrl);
+                currentBlobUrl = null;
+            }
             isLoadingImage = false;
         };
         img.src = imageUrl;
@@ -550,6 +574,10 @@ async function loadRandomImage() {
         const isAutoLoad = typeof event === 'undefined' || !event;
         if (!isAutoLoad) {
             alert(`Fehler beim Laden des zufälligen Bildes: ${error.message}`);
+        }
+        if (currentBlobUrl) {
+            URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = null;
         }
         isLoadingImage = false;
     }
@@ -772,6 +800,13 @@ function loadNextImage() {
     currentImage = null;
     currentImageFilename = null;
     isAutoMode = true; // Zurücksetzen auf Auto-Modus
+    
+    // Gebe Blob-URL frei
+    if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+    }
+    
     updateModeButton();
     
     // Checkboxes zurücksetzen
