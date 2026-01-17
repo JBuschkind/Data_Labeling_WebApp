@@ -288,7 +288,8 @@ function handleCanvasClick(event) {
     const y = event.clientY - rect.top;
     
     if (currentMode === 'subject') {
-        subjectPoints.push({ x, y });
+        // Im Subject-Modus: Nur ein einziger Punkt, vorheriger wird ersetzt
+        subjectPoints = [{ x, y }];
     } else {
         compositionPoints.push({ x, y });
     }
@@ -351,15 +352,35 @@ function drawCanvas() {
     // Bild zeichnen
     ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
     
-    // Subjekt-Punkte zeichnen (rot)
+    // Subjekt-Punkt zeichnen (rot) - nur ein einziger Punkt
     if (subjectPoints.length > 0) {
-        drawShape(subjectPoints, SUBJECT_COLOR, 'S');
+        drawSubjectPoint(subjectPoints[0], SUBJECT_COLOR);
     }
     
     // Kompositions-Punkte zeichnen (blau)
     if (compositionPoints.length > 0) {
         drawShape(compositionPoints, COMPOSITION_COLOR, 'K');
     }
+}
+
+function drawSubjectPoint(point, color) {
+    // Zeichne nur einen einzelnen Punkt für das Subjekt
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Weißer Rand für bessere Sichtbarkeit
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Label "S" in der Mitte
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('S', point.x, point.y);
 }
 
 function drawShape(pointsArray, color, labelPrefix) {
@@ -437,7 +458,8 @@ function removeLastPoint() {
     if (currentMode === 'composition' && compositionPoints.length > 0) {
         compositionPoints.pop();
     } else if (currentMode === 'subject' && subjectPoints.length > 0) {
-        subjectPoints.pop();
+        // Im Subject-Modus: Lösche den einzigen Punkt
+        subjectPoints = [];
     }
     drawCanvas();
     updatePointCount();
