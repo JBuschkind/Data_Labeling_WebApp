@@ -135,6 +135,24 @@ function setupEventListeners() {
         console.error('randomImageBtn nicht gefunden!');
     }
     
+    const loadImageBtn = document.getElementById('loadImageBtn');
+    if (loadImageBtn) {
+        loadImageBtn.addEventListener('click', loadImageByFilename);
+    } else {
+        console.error('loadImageBtn nicht gefunden!');
+    }
+    
+    const filenameInput = document.getElementById('filenameInput');
+    if (filenameInput) {
+        filenameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loadImageByFilename();
+            }
+        });
+    } else {
+        console.error('filenameInput nicht gefunden!');
+    }
+    
     // Canvas-Klicks
     if (canvas) {
         canvas.addEventListener('click', handleCanvasClick);
@@ -453,6 +471,102 @@ function updateShapeType() {
         
         // Aktualisiere den Wert immer, wenn Auto-Modus aktiv ist
         shapeTypeSelect.value = autoType;
+    }
+}
+
+async function loadImageByFilename() {
+    const filenameInput = document.getElementById('filenameInput');
+    if (!filenameInput) {
+        console.error('filenameInput nicht gefunden!');
+        return;
+    }
+    
+    const filename = filenameInput.value.trim();
+    if (!filename) {
+        alert('Bitte geben Sie einen Dateinamen ein.');
+        return;
+    }
+    
+    // Verhindere mehrfache gleichzeitige Aufrufe
+    if (isLoadingImage) {
+        console.log('Bild wird bereits geladen, ignoriere weiteren Aufruf');
+        return;
+    }
+    
+    // Gebe alte Blob-URL frei, falls vorhanden
+    if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+    }
+    
+    isLoadingImage = true;
+    console.log('loadImageByFilename() aufgerufen für:', filename);
+    
+    try {
+        // URL-encode den Dateinamen für sichere Übertragung
+        const encodedFilename = encodeURIComponent(filename);
+        const imageUrl = `/api/image?filename=${encodedFilename}`;
+        
+        // Speichere Dateinamen
+        currentImageFilename = filename;
+        
+        // Lade das Bild direkt über die URL
+        const img = new Image();
+        img.onload = async () => {
+            try {
+                console.log('Bild geladen, Dimensionen:', img.width, 'x', img.height);
+                currentImage = img;
+                imageLoaded = true;
+                
+                // Zurücksetzen der Punkte und Modi
+                subjectPoints = [];
+                compositionPoints = [];
+                currentMode = 'subject';
+                updateModeButton();
+                
+                // Canvas-Größe anpassen
+                const maxWidth = window.innerWidth - 400; // Platz für Sidebar
+                const maxHeight = window.innerHeight - 150; // Platz für Toolbar
+                
+                let width = img.width;
+                let height = img.height;
+                
+                const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+                width *= scale;
+                height *= scale;
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Zeige Bild sofort an
+                drawCanvas();
+                updatePointCount();
+                updateShapeType();
+                
+                // Versuche vorhandene Annotationen zu laden (nicht blockierend)
+                loadExistingAnnotation().catch(err => {
+                    console.warn('Fehler beim Laden der Annotation (nicht kritisch):', err);
+                });
+            } catch (error) {
+                console.error('Fehler beim Verarbeiten des geladenen Bildes:', error);
+            } finally {
+                isLoadingImage = false;
+            }
+        };
+        img.onerror = (e) => {
+            console.error('Fehler beim Laden des Bildes:', e);
+            alert(`Fehler beim Laden des Bildes "${filename}". Bitte prüfen Sie, ob der Dateiname korrekt ist und das Bild im sample_images Ordner existiert.`);
+            isLoadingImage = false;
+        };
+        img.src = imageUrl;
+    } catch (error) {
+        console.error('Error:', error);
+        alert(`Fehler beim Laden des Bildes: ${error.message}`);
+        if (currentBlobUrl) {
+            URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = null;
+        }
+        isLoadingImage = false;
     }
 }
 
